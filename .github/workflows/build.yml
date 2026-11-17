@@ -1,0 +1,36 @@
+name: Build YYB Go (original)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/build.yml'
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repo (Dockerfile)
+        uses: actions/checkout@v4
+      - name: Checkout SuperNaiBA/YYB_GO
+        uses: actions/checkout@v4
+        with:
+          repository: SuperNaiBA/YYB_GO
+          path: yyb-go-src
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: yyb-go-src
+          file: Dockerfile
+          push: true
+          tags: ghcr.io/rxsume/yyb-go:latest
