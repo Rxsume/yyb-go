@@ -1,0 +1,11 @@
+services:
+  yyb-go:
+    image: ghcr.nju.edu.cn/rxsume/yyb-go:latest
+    container_name: yyb-go
+    network_mode: host
+    restart: always
+    user: root
+    volumes:
+      - /root/yyb-go-orig/db:/app/resource/db
+      - /root/yyb-go-orig/avatars:/app/resource/avatars
+      - /root/yyb-go-orig/qr:/app/resource/qr
