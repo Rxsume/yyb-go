@@ -725,7 +725,10 @@ class TestRealQinglongClient(unittest.TestCase):
     - list_ele_cookies was called by core.py but did not exist
       ('QinglongClient' object has no attribute 'list_ele_cookies').
     - upsert_env echoed the whole GET object back on PUT, which
-      Qinglong rejects with HTTP 400 "Validation failed".
+      Qinglong rejects with HTTP 400 "Validation failed". The panel
+      wants a single object {id, name, value, remarks}, not an array
+      (proven live 2026-11-24: array bodies fail with '"value" must
+      be of type object', single object succeeds).
     """
 
     def _client_with_envs(self, envs):
@@ -755,7 +758,7 @@ class TestRealQinglongClient(unittest.TestCase):
         self.assertTrue(got[0]["cookie"].startswith("_m_h5_tk=a"))
         self.assertEqual(got[0]["name"], "ELM_COOKIE")
 
-    def test_upsert_env_put_sends_only_validated_fields(self):
+    def test_upsert_env_put_sends_single_object(self):
         client, calls = self._client_with_envs([
             {"id": 42, "name": "ELM_COOKIE2", "value": "old",
              "remarks": "old", "status": 0,
@@ -766,11 +769,13 @@ class TestRealQinglongClient(unittest.TestCase):
         self.assertEqual(result["action"], "更新")
         puts = [c for c in calls if c[0] == "PUT"]
         self.assertEqual(len(puts), 1)
+        # Single object, NOT a list: this panel rejects an array body
+        # with 400 '"value" must be of type object'.
         payload = puts[0][2]["json"]
-        self.assertEqual(len(payload), 1)
-        self.assertEqual(set(payload[0].keys()), {"id", "name", "value", "remarks"})
-        self.assertEqual(payload[0]["id"], 42)
-        self.assertEqual(payload[0]["value"], "7636#newcookie")
+        self.assertIsInstance(payload, dict)
+        self.assertEqual(set(payload.keys()), {"id", "name", "value", "remarks"})
+        self.assertEqual(payload["id"], 42)
+        self.assertEqual(payload["value"], "7636#newcookie")
 
     def test_upsert_env_create_posts_minimal_body(self):
         client, calls = self._client_with_envs([])

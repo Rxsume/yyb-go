@@ -9,7 +9,11 @@ Verified API surface (panel https://qlhbdx.tocmcc.cn/):
     DELETE /open/crons               body: [id, ...]
     GET  /open/envs                  list env vars
     POST /open/envs                  create; body: [{name, value, remarks}]
-    PUT  /open/envs                  update; body: [{id, name, value, remarks}]
+    PUT  /open/envs                  update ONE var; body: {id, name, value,
+                                     remarks} — a single object, NOT an array
+                                     (this panel returns 400 '"value" must be
+                                     of type object' for an array body;
+                                     proven live 2026-11-24 on a throwaway var)
     GET  /open/scripts               list scripts
 
 Notes:
@@ -310,10 +314,12 @@ class QinglongClient:
         existing = [e for e in self.list_envs() if e.get("name") == name]
         if existing:
             env = existing[0]
-            # Qinglong's PUT /open/envs validates strictly: only the
-            # fields its UpdateEnv DTO accepts may be sent. Echoing the
-            # whole GET object back (createdAt/updatedAt/timestamp/...)
-            # fails with HTTP 400 "Validation failed".
+            # Qinglong's PUT /open/envs on this panel takes ONE env object,
+            # not an array: an array body fails with HTTP 400 '"value" must
+            # be of type object' (proven live 2026-11-24 on a throwaway
+            # var — both the full GET object AND a minimal array fail).
+            # Only the DTO fields may be sent; extra GET fields
+            # (createdAt/updatedAt/timestamp/...) also fail validation.
             payload: dict[str, Any] = {
                 "name": name,
                 "value": value,
@@ -325,7 +331,7 @@ class QinglongClient:
                 self._req("POST", "/open/envs", json=[{"name": name, "value": value, "remarks": remarks}])
                 return {"action": "新建", "name": name}
             payload["id"] = env_id
-            self._req("PUT", "/open/envs", json=[payload])
+            self._req("PUT", "/open/envs", json=payload)
             return {"action": "更新", "name": name}
         self._req("POST", "/open/envs", json=[{"name": name, "value": value, "remarks": remarks}])
         return {"action": "新建", "name": name}
