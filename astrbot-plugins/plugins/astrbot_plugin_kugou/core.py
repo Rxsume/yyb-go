@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -105,6 +106,11 @@ _ELEME_TOP_LEVEL_COMMANDS = frozenset({
 })
 
 
+# 群聊 @机器人 后 message_str 开头会带 [At:...] 段（日志里见过
+# "[At:qq_official] 饿了么登录"），匹配命令前先去掉。
+_MENTION_PREFIX_RE = re.compile(r"^(?:\[At:[^\]]+\]\s*)+")
+
+
 class KugouCore:
     def __init__(self, *, qinglong, kugou, withdraw, cfg, data_dir, push):
         self.qinglong = qinglong
@@ -158,6 +164,8 @@ class KugouCore:
         """Return the reply, or None when the text is not a command
         (the caller lets it fall through to the LLM)."""
         text = (text or "").strip()
+        # 群里 @机器人 后 message_str 开头带的 [At:...] 段先去掉再匹配。
+        text = _MENTION_PREFIX_RE.sub("", text)
         if not text:
             return None
 

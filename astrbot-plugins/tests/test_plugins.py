@@ -835,5 +835,36 @@ class TestTopLevelEscape(unittest.TestCase):
         self.assertIn("二维码已生成", reply.text)
 
 
+# ------------------------------------------------------- group mention
+class TestGroupMention(unittest.TestCase):
+    """Group @-mention prefix must be stripped before matching (2026-11-24):
+    "[At:qq_official] 饿了么登录" arrives with the At segment in message_str.
+    And the ADMIN filter on dispatch is removed, so everyone in the group
+    can use the commands (2026-11-24, user: 所有人使用).
+    """
+
+    def test_eleme_command_with_at_prefix(self):
+        core, _ = make_eleme_core()
+        reply = core.handle_message(SENDER, "[At:qq_official] 饿了么登录", UMO)
+        self.assertIn("======饿了么登录======", reply.text)
+
+    def test_kugou_command_with_at_prefix(self):
+        core, _ = make_kugou_core()
+        reply = core.handle_message(SENDER, "[At:qq_official] 酷狗登录", UMO)
+        self.assertIn("二维码已生成", reply.text)
+
+    def test_bare_at_alone_is_ignored(self):
+        core, _ = make_eleme_core()
+        self.assertIsNone(core.handle_message(SENDER, "[At:qq_official]", UMO))
+
+    def test_dispatch_has_no_admin_filter(self):
+        for plugin in ("astrbot_plugin_eleme", "astrbot_plugin_kugou"):
+            path = os.path.join(PLUGINS_DIR, plugin, "main.py")
+            with open(path, encoding="utf-8") as fh:
+                src = fh.read()
+            self.assertNotIn("permission_type", src, plugin)
+            self.assertIn("event_message_type", src, plugin)
+
+
 if __name__ == "__main__":
     unittest.main()

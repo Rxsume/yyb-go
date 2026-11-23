@@ -145,6 +145,11 @@ def _is_top_level_command(text: str) -> bool:
     return text in _TOP_LEVEL_COMMANDS or bool(QL_ID_RE.match(text))
 
 
+# 群聊 @机器人 后 message_str 开头会带 [At:...] 段（日志里见过
+# "[At:qq_official] 饿了么登录"），匹配命令前先去掉。
+_MENTION_PREFIX_RE = re.compile(r"^(?:\[At:[^\]]+\]\s*)+")
+
+
 class ElemeCore:
     def __init__(self, *, qinglong, sms_login, yyb, cfg, data_dir, push):
         self.qinglong = qinglong
@@ -210,6 +215,8 @@ class ElemeCore:
         """Return the reply, or None when the text is not a command
         (the caller lets it fall through to the LLM)."""
         text = (text or "").strip()
+        # 群里 @机器人 后 message_str 开头带的 [At:...] 段先去掉再匹配。
+        text = _MENTION_PREFIX_RE.sub("", text)
         if not text:
             return None
 

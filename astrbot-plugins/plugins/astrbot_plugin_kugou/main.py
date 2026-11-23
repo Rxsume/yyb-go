@@ -2,10 +2,9 @@
 
 QQ 官方 Bot（qq_official）专用。命令沿用 TG 机器人的中文纯文本习惯，
 命中命令后 stop_event() 阻止进 LLM，未命中放行给 LLM。
-权限：@filter.permission_type(ADMIN)，管理员在 AstrBot 后台全局管理员
-列表里配——注意：QQ 官方适配器的 sender_id 是用户 openid，不是 QQ 号，
-所以管理员列表里要填你的 openid（发任意消息后在 AstrBot 日志里能看到），
-填 QQ 号 530528018 是匹配不上的。
+权限：不设管理员限制（2026-11-24 用户要求群里所有人都能用），私聊和
+群聊的任何人发命令都会执行。注意：群里任何人都能提现到你配好的微信、
+操作青龙任务；只在自己人的群里用。
 
 QQ 侧降级：token 不在 QQ 消息里贴明文。登录成功后只报 userid 与同步
 状态；kg_sync_qinglong 打开时 token 自动同步进青龙 KGGNB。
@@ -108,7 +107,6 @@ class KugouPlugin(Star):
         self.core.stop_scheduler()
 
     @filter.event_message_type(filter.EventMessageType.ALL)
-    @filter.permission_type(filter.PermissionType.ADMIN)
     async def dispatch(self, event: AstrMessageEvent):
         try:
             self._loop = asyncio.get_running_loop()
