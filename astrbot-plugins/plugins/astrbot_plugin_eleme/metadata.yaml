@@ -1,0 +1,6 @@
+name: astrbot_plugin_eleme
+desc: 饿了么登录/管理/查询/兑换/定时兑换 + 青龙管理（QQ 官方 Bot）
+version: 0.1.0
+author: Golia
+support_platforms:
+  - qq_official

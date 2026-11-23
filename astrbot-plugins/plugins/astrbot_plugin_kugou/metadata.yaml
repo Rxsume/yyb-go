@@ -1,0 +1,6 @@
+name: astrbot_plugin_kugou
+desc: 酷狗概念版扫码登录 / 提现 / 定时提现（QQ 官方 Bot）
+version: 0.1.0
+author: Golia
+support_platforms:
+  - qq_official
