@@ -78,6 +78,33 @@ class KugouSettings:
     kg_sync_qinglong: bool = False
 
 
+# Top-level commands (exactly the set the routing block in
+# handle_message handles). Sending one mid-flow jumps straight there
+# instead of being swallowed by the sub-menu's fallback — same class
+# of bug as the Ele.me plugin's 2026-11-24 s/r/q trap.
+_KUGOU_TOP_LEVEL_COMMANDS = frozenset({
+    "酷狗登录", "酷狗", "kugou", "Kugou", "酷狗提现", "定时提现",
+    "酷狗帮助", "酷狗help",
+})
+
+# The Ele.me plugin owns these (mirror of
+# astrbot_plugin_eleme.core._TOP_LEVEL_COMMANDS — keep in sync); when
+# one arrives mid Kugou flow, drop our flow and let the event continue
+# to it (handle_message returns None).
+_ELEME_TOP_LEVEL_COMMANDS = frozenset({
+    "菜单", "饿了么登录", "饿了么", "管理", "饿了么教程", "登录",
+    "手机号登录", "手机登录", "浏览器登录",
+    "帮助", "help", "？", "?",
+    "同步检查", "饿了么查询", "饿了么兑换", "定时兑换", "饿了么抢兑",
+    "Cookie 检查", "Cookie 管理", "失效账号", "饿了么管理",
+    "幸运星", "幸运星查询", "查幸运星",
+    "青龙任务", "青龙变量", "青龙脚本",
+    "青龙日志", "青龙执行", "青龙停止", "青龙启用", "青龙禁用",
+    "酷狗教程", "电信教程", "联通教程", "移动云盘教程", "望潮教程",
+    "顺丰教程", "美团领卷", "粉象教程", "朴朴超市教程",
+})
+
+
 class KugouCore:
     def __init__(self, *, qinglong, kugou, withdraw, cfg, data_dir, push):
         self.qinglong = qinglong
@@ -141,6 +168,16 @@ class KugouCore:
         if text.lower() == "q":
             session.reset_flow()
             return Reply("✅ 已退出操作")
+        # Top-level commands always escape a sub-flow: reset first, then
+        # fall through to the routing below (state is IDLE now, so no
+        # state handler fires). Without this, a command sent while the
+        # session sits in e.g. KW_TIER is swallowed by that menu's
+        # fallback.
+        if text in _KUGOU_TOP_LEVEL_COMMANDS:
+            session.reset_flow()
+        elif text in _ELEME_TOP_LEVEL_COMMANDS:
+            session.reset_flow()
+            return None
         if session.state == st.KG_QR_WAIT:
             return self._as_reply(self._on_kg_qr_wait(session, text))
         if session.state == st.KW_ACCOUNTS:

@@ -153,6 +153,18 @@ def _elm_slot_name(slot: int) -> str:
     return f"ELM_COOKIE{slot}"
 
 
+def _cookie_userid(cookie: str) -> str:
+    """Best-effort USERID from a cookie string (USERID/utuser/userid)."""
+    for part in (cookie or "").split(";"):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        key, _, value = part.partition("=")
+        if key.strip() in ("USERID", "utuser", "userid", "unb", "munb") and value.strip():
+            return value.strip()
+    return ""
+
+
 class QinglongClient:
     def __init__(self, base_url: str, token: str, timeout: int = 15):
         self.base_url = base_url.rstrip("/")
@@ -297,11 +309,23 @@ class QinglongClient:
         """Create the env var if missing, else update it in place."""
         existing = [e for e in self.list_envs() if e.get("name") == name]
         if existing:
-            env = dict(existing[0])
-            env["value"] = value
-            if remarks:
-                env["remarks"] = remarks
-            self._req("PUT", "/open/envs", json=[env])
+            env = existing[0]
+            # Qinglong's PUT /open/envs validates strictly: only the
+            # fields its UpdateEnv DTO accepts may be sent. Echoing the
+            # whole GET object back (createdAt/updatedAt/timestamp/...)
+            # fails with HTTP 400 "Validation failed".
+            payload: dict[str, Any] = {
+                "name": name,
+                "value": value,
+                "remarks": remarks if remarks else str(env.get("remarks") or ""),
+            }
+            env_id = env.get("id")
+            if env_id is None:
+                # No id to update by: create instead.
+                self._req("POST", "/open/envs", json=[{"name": name, "value": value, "remarks": remarks}])
+                return {"action": "新建", "name": name}
+            payload["id"] = env_id
+            self._req("PUT", "/open/envs", json=[payload])
             return {"action": "更新", "name": name}
         self._req("POST", "/open/envs", json=[{"name": name, "value": value, "remarks": remarks}])
         return {"action": "新建", "name": name}
@@ -350,6 +374,43 @@ class QinglongClient:
             lines = [ln for ln in value.splitlines() if ln.strip()]
             remarks = [(ln.split("#", 1)[0] if "#" in ln else f"账号{slot}") for ln in lines]
             out.append({"slot": slot, "name": name, "remarks": remarks, "count": len(lines)})
+        return sorted(out, key=lambda x: x["slot"])
+
+    def list_ele_cookies(self) -> list[dict]:
+        """[{remark, cookie, userid, slot, name}] for every account line
+        in ELM_COOKIE* vars, in slot order.
+
+        Values are returned because callers need the cookie itself to
+        query balances / exchange; callers must never log or echo them.
+        """
+        out = []
+        for env in self.list_envs():
+            name = str(env.get("name") or "")
+            if name == "ELM_COOKIE":
+                slot = 1
+            elif name.startswith("ELM_COOKIE") and name[len("ELM_COOKIE"):].isdigit():
+                slot = int(name[len("ELM_COOKIE"):])
+            else:
+                continue
+            value = str(env.get("value") or "")
+            for line in value.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if "#" in line:
+                    remark, cookie = line.split("#", 1)
+                    remark, cookie = remark.strip(), cookie.strip()
+                else:
+                    remark, cookie = f"账号{slot}", line
+                if not cookie:
+                    continue
+                out.append({
+                    "remark": remark or f"账号{slot}",
+                    "cookie": cookie,
+                    "userid": _cookie_userid(cookie),
+                    "slot": slot,
+                    "name": name,
+                })
         return sorted(out, key=lambda x: x["slot"])
 
     def sync_ele_cookie(self, cookie: str, remark: str, slot: int = 1) -> dict:

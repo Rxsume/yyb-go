@@ -717,5 +717,118 @@ class TestPluginFiles(unittest.TestCase):
         self.assertTrue(kw.KugouWithdraw().available)
 
 
+# ------------------------------------------------------- real QL client
+class TestRealQinglongClient(unittest.TestCase):
+    """Regression tests for the real QinglongClient (no network).
+
+    Covers the two live failures of 2026-11-24 01:09:
+    - list_ele_cookies was called by core.py but did not exist
+      ('QinglongClient' object has no attribute 'list_ele_cookies').
+    - upsert_env echoed the whole GET object back on PUT, which
+      Qinglong rejects with HTTP 400 "Validation failed".
+    """
+
+    def _client_with_envs(self, envs):
+        from astrbot_plugin_eleme.qinglong import QinglongClient
+        client = QinglongClient("http://127.0.0.1:5700", "token")
+        calls = []
+
+        def fake_req(method, path, **kwargs):
+            calls.append((method, path, kwargs))
+            if method == "GET" and path == "/open/envs":
+                return [dict(e) for e in envs]
+            return {"ok": True}
+
+        client._req = fake_req
+        return client, calls
+
+    def test_list_ele_cookies_parses_slots_and_userid(self):
+        client, _ = self._client_with_envs([
+            {"id": 7, "name": "ELM_COOKIE2", "value": "7636#_m_h5_tk=x; USERID=222; cookie2=y", "remarks": ""},
+            {"id": 3, "name": "ELM_COOKIE", "value": "8164#_m_h5_tk=a; USERID=111; cookie2=z\n0261#_m_h5_tk=b; utuser=333", "remarks": ""},
+            {"id": 9, "name": "OTHER_VAR", "value": "zzz", "remarks": ""},
+        ])
+        got = client.list_ele_cookies()
+        self.assertEqual([a["remark"] for a in got], ["8164", "0261", "7636"])
+        self.assertEqual([a["slot"] for a in got], [1, 1, 2])
+        self.assertEqual([a["userid"] for a in got], ["111", "333", "222"])
+        self.assertTrue(got[0]["cookie"].startswith("_m_h5_tk=a"))
+        self.assertEqual(got[0]["name"], "ELM_COOKIE")
+
+    def test_upsert_env_put_sends_only_validated_fields(self):
+        client, calls = self._client_with_envs([
+            {"id": 42, "name": "ELM_COOKIE2", "value": "old",
+             "remarks": "old", "status": 0,
+             "createdAt": "2026-01-01", "updatedAt": "2026-01-02",
+             "timestamp": "2026-01-02"},
+        ])
+        result = client.upsert_env("ELM_COOKIE2", "7636#newcookie", remarks="微信机器人同步 7636")
+        self.assertEqual(result["action"], "更新")
+        puts = [c for c in calls if c[0] == "PUT"]
+        self.assertEqual(len(puts), 1)
+        payload = puts[0][2]["json"]
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(set(payload[0].keys()), {"id", "name", "value", "remarks"})
+        self.assertEqual(payload[0]["id"], 42)
+        self.assertEqual(payload[0]["value"], "7636#newcookie")
+
+    def test_upsert_env_create_posts_minimal_body(self):
+        client, calls = self._client_with_envs([])
+        result = client.upsert_env("ELM_COOKIE3", "8311#newcookie")
+        self.assertEqual(result["action"], "新建")
+        posts = [c for c in calls if c[0] == "POST"]
+        self.assertEqual(len(posts), 1)
+        self.assertEqual(posts[0][2]["json"],
+                         [{"name": "ELM_COOKIE3", "value": "8311#newcookie", "remarks": ""}])
+
+
+# ------------------------------------------------- top-level escape
+class TestTopLevelEscape(unittest.TestCase):
+    """Top-level commands must escape any sub-flow (2026-11-24).
+
+    Live failure: with the session sitting in the Cookie-management
+    menu, "饿了么登录" and "饿了么查询" were both swallowed by that
+    menu's "请回复 s / r / q。" fallback instead of jumping to their
+    own menus.
+    """
+
+    def test_eleme_cookie_menu_escapes_to_login(self):
+        core, _ = make_eleme_core()
+        self.assertIn("饿了么管理",
+                      core.handle_message(SENDER, "饿了么管理", UMO).text)
+        reply = core.handle_message(SENDER, "饿了么登录", UMO)
+        self.assertIn("======饿了么登录======", reply.text)
+        self.assertIn("[1] 短信验证码登录", reply.text)
+        self.assertNotIn("请回复 s / r / q", reply.text)
+
+    def test_eleme_cookie_menu_escapes_to_query(self):
+        core, _ = make_eleme_core()
+        core.handle_message(SENDER, "饿了么管理", UMO)
+        reply = core.handle_message(SENDER, "饿了么查询", UMO)
+        self.assertIn("=====饿了么查询=====", reply.text)
+        self.assertNotIn("请回复 s / r / q", reply.text)
+
+    def test_eleme_cookie_menu_escapes_to_kugou(self):
+        # A Kugou command mid Ele.me flow: drop our flow, return None
+        # so the event continues to the Kugou plugin.
+        core, _ = make_eleme_core()
+        core.handle_message(SENDER, "饿了么管理", UMO)
+        self.assertIsNone(core.handle_message(SENDER, "酷狗登录", UMO))
+
+    def test_menu_state_numbers_still_work(self):
+        # 1/2/3 are menu choices, not top-level commands: they must
+        # still reach _on_menu_choice.
+        core, _ = make_eleme_core()
+        core.handle_message(SENDER, "饿了么登录", UMO)
+        reply = core.handle_message(SENDER, "1", UMO)
+        self.assertIn("手机号", reply.text)
+
+    def test_kugou_withdraw_flow_escapes_to_login(self):
+        core, _ = make_kugou_core()
+        core.handle_message(SENDER, "酷狗提现", UMO)
+        reply = core.handle_message(SENDER, "酷狗登录", UMO)
+        self.assertIn("二维码已生成", reply.text)
+
+
 if __name__ == "__main__":
     unittest.main()

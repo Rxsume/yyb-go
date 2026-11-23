@@ -117,6 +117,34 @@ class ElemeSettings:
     remark_phones: dict[str, str] = field(default_factory=dict)
 
 
+# Top-level commands (exactly the set the routing block in
+# handle_message handles, plus the tutorial placeholders). Sending one
+# mid-flow jumps straight there instead of being swallowed by the
+# sub-menu's fallback — 2026-11-24: "饿了么登录" and "饿了么查询" sent
+# while stuck in the Cookie-management menu both got the s/r/q fallback.
+_TOP_LEVEL_COMMANDS = frozenset({
+    "菜单", "饿了么登录", "饿了么", "管理", "饿了么教程", "登录",
+    "手机号登录", "手机登录", "浏览器登录",
+    "帮助", "help", "？", "?",
+    "同步检查", "饿了么查询", "饿了么兑换", "定时兑换", "饿了么抢兑",
+    "Cookie 检查", "Cookie 管理", "失效账号", "饿了么管理",
+    "幸运星", "幸运星查询", "查幸运星",
+    "青龙任务", "青龙变量", "青龙脚本",
+    "青龙日志", "青龙执行", "青龙停止", "青龙启用", "青龙禁用",
+}) | frozenset(TUTORIAL_PLACEHOLDERS)
+
+# The Kugou plugin owns these; when one arrives mid Ele.me flow, drop
+# our flow and let the event continue to it (handle_message returns None).
+_KUGOU_TOP_LEVEL_COMMANDS = frozenset({
+    "酷狗登录", "酷狗", "kugou", "Kugou", "酷狗提现", "定时提现",
+    "酷狗帮助", "酷狗help",
+})
+
+
+def _is_top_level_command(text: str) -> bool:
+    return text in _TOP_LEVEL_COMMANDS or bool(QL_ID_RE.match(text))
+
+
 class ElemeCore:
     def __init__(self, *, qinglong, sms_login, yyb, cfg, data_dir, push):
         self.qinglong = qinglong
@@ -192,6 +220,16 @@ class ElemeCore:
         if text.lower() == "q":
             session.reset_flow()
             return Reply("✅ 已退出操作")
+        # Top-level commands always escape a sub-flow: reset first, then
+        # fall through to the routing below (state is IDLE now, so no
+        # state handler fires). Without this, a command sent while the
+        # session sits in e.g. COOKIE_MENU is swallowed by that menu's
+        # "请回复 s / r / q。" fallback.
+        if _is_top_level_command(text):
+            session.reset_flow()
+        elif text in _KUGOU_TOP_LEVEL_COMMANDS:
+            session.reset_flow()
+            return None
         if session.state == st.SMS_PHONE:
             return self._as_reply(self._on_sms_phone(session, text))
         if session.state == st.SMS_CODE:
