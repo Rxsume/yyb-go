@@ -492,11 +492,12 @@ class ElemeCore:
         return True, extract_remark(cookie, f"饿了么{slot}"), "OK"
 
     def _yyb_bound_reply(self, session: st.Session, slot: int, remark: str) -> str:
+        phone = (session.current_phone or "").strip()
+        account = mask_phone(phone) if (phone and len(phone) >= 7 and phone.isdigit()) else remark
         done = (
             f"======饿了么账号绑定======\n"
-            f"📱 账号：{remark}\n"
-            f"🔐 授权状态：✅ 已授权\n"
-            f"已同步进青龙 ELM_COOKIE{'%d' % slot if slot > 1 else ''}（槽位 {slot}，其他账号不受影响）"
+            f"📱 账号：{account}\n"
+            f"🔐 登录状态：✅ 已登录"
         )
         if session.total_accounts:
             return done + "\n\n" + self._advance(session)
@@ -623,11 +624,11 @@ class ElemeCore:
         except QinglongError as exc:
             session.reset_flow()
             return f"✅ 登录成功：{remark}\n❌ 同步青龙失败：{exc}\nCookie 未写入，请检查 QL_TOKEN 后重登。"
+        account = mask_phone(phone) if (phone and len(phone) >= 7 and phone.isdigit()) else remark
         done = (
             f"======饿了么账号绑定======\n"
-            f"📱 账号：{remark}\n"
-            f"🔐 授权状态：✅ 已授权\n"
-            f"已同步进青龙 ELM_COOKIE{'%d' % slot if slot > 1 else ''}（槽位 {slot}，其他账号不受影响）"
+            f"📱 账号：{account}\n"
+            f"🔐 登录状态：✅ 已登录"
         )
         if session.reregister_mode:
             return done + "\n\n" + self._reregister_advance(session)
