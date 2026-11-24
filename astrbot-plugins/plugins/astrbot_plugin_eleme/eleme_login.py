@@ -75,7 +75,11 @@ REQUIRED_COOKIE_FIELDS = ("_m_h5_tk",)
 IDENTITY_COOKIE_FIELDS = ("USERID", "utuser", "userid", "munb", "unb", "SID", "cookie2")
 
 # Used only as a live check for a pasted cookie; failure is reported, not fatal.
-CURRENT_USER_URL = "https://www.ele.me/restapi/eus/v1/current_user"
+# NOTE: www.ele.me/restapi/... now returns the Taobao Flash Sale HTML
+# landing page (HTTP 200, text/html) instead of JSON, so it can never
+# validate a cookie — every paste got "服务端返回异常". h5.ele.me
+# returns real JSON (a user object for a live cookie, `0` for a dead one).
+CURRENT_USER_URL = "https://h5.ele.me/restapi/eus/v1/current_user"
 
 PHONE_RE = re.compile(r"^1\d{10}$")
 CODE_RE = re.compile(r"^\d{4,6}$")
@@ -166,7 +170,10 @@ def check_cookie_live(cookie: str, timeout: int = 10) -> tuple[bool, str]:
     try:
         data = resp.json()
     except ValueError:
-        return False, "服务端返回异常，Cookie 可能已失效"
+        # HTTP 200 but not JSON (e.g. an HTML landing/error page): the
+        # endpoint is not answering as an API, so this proves nothing
+        # about the cookie — report "cannot verify", not "dead".
+        return False, "服务端返回非 JSON（无法验证），Cookie 已同步，下一场任务以实际结果为准"
     if isinstance(data, dict) and data.get("user_id"):
         return True, f"验证通过，用户ID {data.get('user_id')}"
     return False, "服务端未认出该登录态，Cookie 可能已失效"
