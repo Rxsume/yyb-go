@@ -1,0 +1,4 @@
+name: astrbot_plugin_wechat_personal
+desc: 个人微信小号（WeChatPadPro iPad 协议）平台适配器：1v1 与群聊收发，扫码登录
+version: 0.1.0
+author: Golia
