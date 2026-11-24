@@ -169,6 +169,55 @@ def _cookie_userid(cookie: str) -> str:
     return ""
 
 
+def merge_cookie_lines(current: str, new_line: str, new_uid: str, remark: str) -> str:
+    """Merge one account's cookie line into a multi-account env value.
+
+    Same rule as merge_kggnb_lines (the household's convention since
+    2026-11-19: every cookie line carries a ``备注#`` prefix, one
+    account per line): match by USERID first; when no line carries
+    that USERID, fall back to the leading remark/username (both
+    USERID and username identify an account — a re-login with an
+    empty USERID still matches by username, never skips). A matched
+    line is overwritten IN PLACE with the new line as-is: the cookie
+    changes, the remark (account ID) stays, and the account keeps its
+    original position so the order never moves. Only when neither key
+    matches is the line appended (a genuinely new account). Other
+    accounts and their remarks stay untouched, in their original
+    order. A duplicate line for the same account is dropped, so one
+    account never appears twice. A wholesale overwrite here would
+    delete the other accounts (2026-11-24 01:40: 1793 re-login wiped
+    the other 12 accounts out of ELM_COOKIE).
+    """
+    lines = [l for l in (current or "").splitlines() if l.strip()]
+    new_line = (new_line or "").strip()
+    new_uid = (new_uid or "").strip()
+    remark = (remark or "").strip()
+    # USERID match has priority; the remark/username fallback applies
+    # only when no line carries this USERID.
+    uid_hit = bool(new_uid) and any(
+        _cookie_userid(l) == new_uid for l in lines)
+    out_lines: list[str] = []
+    replaced = False
+    for l in lines:
+        if new_uid and _cookie_userid(l) == new_uid:
+            hit = True
+        elif (not uid_hit and remark and "#" in l
+                and l.split("#", 1)[0] == remark):
+            hit = True
+        else:
+            hit = False
+        if hit:
+            if replaced:
+                continue  # drop a duplicate line for the same account
+            out_lines.append(new_line)
+            replaced = True
+        else:
+            out_lines.append(l)
+    if not replaced:
+        out_lines.append(new_line)
+    return "\n".join(out_lines)
+
+
 class QinglongClient:
     def __init__(self, base_url: str, token: str, timeout: int = 15):
         self.base_url = base_url.rstrip("/")
@@ -423,14 +472,24 @@ class QinglongClient:
         """Write one account's cookie into ELM_COOKIE (slot 1) or
         ELM_COOKIE<n> (slots 2..20), value format ``备注#完整Cookie``.
 
-        Slot 1 is overwritten wholesale (the household's convention: one
-        line per account in ELM_COOKIE is replaced by the fresh line for
-        the re-login being done; other accounts live in slots 2..20).
+        MERGE, never overwrite: ELM_COOKIE holds one line per account
+        (household rule since 2026-11-19), so only this account's line
+        is replaced in place (matched by USERID, else by the leading
+        remark/username) and the other accounts' lines are kept, in
+        their original order. A wholesale overwrite would delete the
+        other accounts' cookies (2026-11-24 01:40: 1793 re-login wiped
+        the other 12 accounts out of ELM_COOKIE).
         """
         if not 1 <= slot <= MAX_ELM_SLOTS:
             raise QinglongError(f"slot 只能是 1~{MAX_ELM_SLOTS}")
         name = _elm_slot_name(slot)
-        value = f"{remark}#{cookie.strip()}"
+        current = ""
+        for env in self.list_envs():
+            if str(env.get("name") or "") == name:
+                current = str(env.get("value") or "")
+                break
+        new_line = f"{remark}#{cookie.strip()}"
+        value = merge_cookie_lines(current, new_line, _cookie_userid(cookie), remark)
         return self.upsert_env(name, value, remarks=f"微信机器人同步 {remark}")
 
     # -- Kugou (KGGNB) ------------------------------------------------------
