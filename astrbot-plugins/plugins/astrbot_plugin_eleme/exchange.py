@@ -104,12 +104,16 @@ def _number(value: Any) -> Decimal | None:
 
 
 def _item_name(raw: dict) -> str:
-    return (
+    # 商品名里的 * 会被 QQ/TG 当成 Markdown 粗体标记，导致商城列表
+    # 前半段整片变粗斜体；_ 也会触发斜体。这里把 * 换成 ×、_ 换成
+    # 全角下划线，显示含义不变，消息不再被误解析。
+    name = (
         ((raw.get("materialInfo") or {}).get("title"))
         or ((raw.get("rightMaterialInfoDTO") or {}).get("title"))
         or ((raw.get("bizExtInfo") or {}).get("exchangeIntroduction"))
         or "未命名商品"
     )
+    return str(name).replace("*", "×").replace("_", "＿")
 
 
 def _ext_info(raw: dict) -> dict:
@@ -371,13 +375,18 @@ def exchange_item(
     lat: float = DEFAULT_LAT,
     lng: float = DEFAULT_LNG,
     timeout: int = 15,
+    force: bool = False,
 ) -> str:
     """兑换一件已确认的商品。返回给用户看的结果行。
 
     未就绪不发请求；响应异常不重试（结果未知）。
+    force=True 时跳过本地 ready 判断、直接发兑换请求，由服务端决定
+    是否可兑——供定时兑换的预热复用：预热时缓存的商品参数在开抢时刻
+    直接用，不再拉商城；预热时 ready=False 只是因为还没开售，不能
+    因此跳过（与青龙兑换脚本 _exchange_once 的 force 一个思路）。
     """
     name = item.get("name") or "商品"
-    if not item.get("ready"):
+    if not force and not item.get("ready"):
         return f"➖ {name} 当前不可兑换（{item.get('reason') or '状态未知'}），未兑换"
     missing = [k for k in ("exchange_act_id", "exchange_collection_id",
                            "exchange_id", "act_code") if not item.get(k)]

@@ -305,7 +305,7 @@ class ScheduledExchangeRunner:
         self,
         store: ScheduledExchangeStore,
         build_picks: Callable[[dict, list[str]], tuple[list[str], dict]],
-        execute: Callable[[dict], str],
+        execute: Callable[..., str],
         notify: Callable[[int, str], None],
         poll_seconds: int = POLL_SECONDS,
         clock: Callable[[], datetime] | None = None,
@@ -353,7 +353,11 @@ class ScheduledExchangeRunner:
         )
 
     def _prewarm(self, task: dict, now: datetime) -> None:
-        lines, _picks = self.build_picks(task["item"], list(task["remarks"]))
+        lines, picks = self.build_picks(task["item"], list(task["remarks"]))
+        # 把商品参数缓存进任务（青龙兑换脚本 _prepare 的思路）：到点执行时
+        # 直接用这份缓存发兑换请求，不再拉商城；预热时 ready=False 只是
+        # 因为还没开售，执行时 force=True 绕过本地 ready 判断、由服务端定。
+        task["prewarmed_picks"] = picks
         task["status"] = STATUS_PREWARMED
         task["prewarmed_at"] = now.isoformat(timespec="seconds")
         self.store.update(task)
@@ -365,22 +369,31 @@ class ScheduledExchangeRunner:
     def _run(self, task: dict, now: datetime) -> None:
         target = task_target(task) or now
         try:
-            _lines, picks = self.build_picks(task["item"], list(task["remarks"]))
-            # 开售瞬间误判重查：没有任何 ready 的 pick 且可能翻盘时，
-            # 只读重查 build_picks，最多 2 次（+10 秒、+20 秒各一次）；
-            # 一旦有 ready 的 pick 就拿最新结果继续走正常执行；重查完
-            # 仍无 ready 的 pick，就按原逻辑执行（各号拿到最终原因的
-            # 报告，不吞报告）。只重查只读的 build_picks，绝不重试兑
-            # 换请求本身；预热、补跑、过期逻辑不动。
-            for _ in range(RECHECK_MAX):
-                if _any_ready(picks) or not _may_flip(picks):
-                    break
-                self.sleeper(RECHECK_SECONDS)
-                _lines, picks = self.build_picks(task["item"], list(task["remarks"]))
-            if not picks:
-                result = "没有能兑换的账号，未兑换。"
+            prewarmed = task.get("prewarmed_picks")
+            if prewarmed:
+                # 有预热缓存：直接用缓存的商品参数发兑换请求，不再拉商城；
+                # force=True 绕过本地 ready 判断（预热时还没开售，ready
+                # 一定是 False），由服务端决定是否可兑。开抢瞬间不再付
+                # 拉商城的代价，与青龙兑换脚本的预热一个思路。
+                picks = prewarmed
+                result = self.execute(picks, force=True)
             else:
-                result = self.execute(picks)
+                _lines, picks = self.build_picks(task["item"], list(task["remarks"]))
+                # 开售瞬间误判重查：没有任何 ready 的 pick 且可能翻盘时，
+                # 只读重查 build_picks，最多 2 次（+10 秒、+20 秒各一次）；
+                # 一旦有 ready 的 pick 就拿最新结果继续走正常执行；重查完
+                # 仍无 ready 的 pick，就按原逻辑执行（各号拿到最终原因的
+                # 报告，不吞报告）。只重查只读的 build_picks，绝不重试兑
+                # 换请求本身；预热、补跑、过期逻辑不动。
+                for _ in range(RECHECK_MAX):
+                    if _any_ready(picks) or not _may_flip(picks):
+                        break
+                    self.sleeper(RECHECK_SECONDS)
+                    _lines, picks = self.build_picks(task["item"], list(task["remarks"]))
+                if not picks:
+                    result = "没有能兑换的账号，未兑换。"
+                else:
+                    result = self.execute(picks)
         except Exception as exc:  # noqa: BLE001 - 执行异常只记一次，绝不重试
             task["status"] = STATUS_ERROR
             task["result"] = f"执行异常：{exc}（未重试）"

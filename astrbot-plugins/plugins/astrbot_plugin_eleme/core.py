@@ -1262,11 +1262,13 @@ class ElemeCore:
             return self._cancel_to_menu(session, "✅ 已取消兑换")
         return "请回复 y 确认兑换，或回复 n 取消。"
 
-    def _run_exchange(self, picks: dict[str, dict]) -> str:
+    def _run_exchange(self, picks: dict[str, dict], force: bool = False) -> str:
         """并行兑换（只兑确认过的那一件），每号一块结果。
 
         每号只发一次兑换请求（响应异常不重试，结果未知时绝不补发）；
         回复顺序仍按确认页的顺序。
+        force=True 时跳过本地 ready 判断、直接发请求（定时兑换用预热
+        缓存的商品参数时传 True，见 scheduled_exchange._run）。
         """
         if self.qinglong is None:
             return "❌ 青龙未接通"
@@ -1281,7 +1283,7 @@ class ElemeCore:
             cookie = accounts.get(remark, "")
             if not cookie:
                 return f"📱 账号：{remark}\n❌ 没有 Cookie，未兑换"
-            result = exchange_one_item(cookie, item)
+            result = exchange_one_item(cookie, item, force=force)
             lines = [f"📱 账号：{remark}", result]
             if result.startswith("✅"):
                 try:
